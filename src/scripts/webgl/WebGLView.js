@@ -30,13 +30,88 @@ export default class WebGLView {
     this.initBgScene();
     this.initLights();
     this.initTweakPane();
-    await this.loadTestMesh();
+    // await this.loadTestMesh();
     this.setupTextCanvas();
     this.initMouseMoveListen();
     this.initMouseCanvas();
-    this.initRenderTri();
     this.initPostProcessing();
+
+    this.setupSkybox();
+    this.initCubeCluster();
+    this.setupRenderTargets();
+
+    this.initRenderTri();
     this.initResizeHandler();
+  }
+
+  setupRenderTargets() {
+    this.skyboxRt = new THREE.WebGLRenderTarget(
+      window.innerWidth,
+      window.innerHeight
+    );
+    this.cubesRt = new THREE.WebGLRenderTarget(
+      window.innerWidth,
+      window.innerHeight
+    );
+  }
+
+  setupSkybox() {
+    this.skyboxScene = new THREE.Scene();
+    const loader = new THREE.TextureLoader();
+    const materialArray = [];
+
+    const textureBack = loader.load('./lightblue/back.png');
+    const textureBottom = loader.load('./lightblue/bot.png');
+    const textureFront = loader.load('./lightblue/front.png');
+    const textureLeft = loader.load('./lightblue/left.png');
+    const textureRight = loader.load('./lightblue/right.png');
+    const textureTop = loader.load('./lightblue/top.png');
+
+    materialArray.push(new THREE.MeshBasicMaterial({ map: textureFront }));
+    materialArray.push(new THREE.MeshBasicMaterial({ map: textureBack }));
+    materialArray.push(new THREE.MeshBasicMaterial({ map: textureTop }));
+    materialArray.push(new THREE.MeshBasicMaterial({ map: textureBottom }));
+    materialArray.push(new THREE.MeshBasicMaterial({ map: textureRight }));
+    materialArray.push(new THREE.MeshBasicMaterial({ map: textureLeft }));
+
+    for (let i = 0; i < 6; i++) {
+      materialArray[i].side = THREE.BackSide;
+    }
+
+    const geo = new THREE.BoxGeometry(500, 500, 500);
+    this.skybox = new THREE.Mesh(geo, materialArray);
+    this.skyboxScene.add(this.skybox);
+  }
+
+  initCubeCluster() {
+    const cubeCount = 300;
+    const radius = 3;
+    const mat = new THREE.MeshNormalMaterial();
+    const geo = new THREE.BoxBufferGeometry(1, 1, 1);
+
+    this.cubes = [];
+    this.cubeGroup = new THREE.Group();
+    this.cubesScene = new THREE.Scene();
+
+    for (let i = 0; i < cubeCount; i++) {
+      const cube = new THREE.Mesh(geo, mat);
+
+      const x = THREE.Math.randFloat(-1, 1);
+      const y = THREE.Math.randFloat(-1, 1);
+      const z = THREE.Math.randFloat(-1, 1);
+      const normalizationFactor = 1 / Math.sqrt(x * x + y * y + z * z);
+
+      cube.position.set(
+        x * normalizationFactor * radius,
+        y * normalizationFactor * radius,
+        z * normalizationFactor * radius
+      );
+
+      this.cubesScene.add(cube);
+      // this.cubeGroup.add(cube);
+
+      this.cubes.push(cube);
+    }
   }
 
   initResizeHandler() {
@@ -60,15 +135,8 @@ export default class WebGLView {
         this.bgCamera.aspect = this.width / this.height;
         this.bgCamera.updateProjectionMatrix();
 
-        // text canvas
-        this.textCanvas.canvas.width = this.width;
-        this.textCanvas.canvas.height = this.height;
-        this.setupTextCanvas();
-        this.renderTri.triMaterial.uniforms.uTextCanvas.value = this.textCanvas.texture;
-
-        // mouse canvas
-        this.mouseCanvas.canvas.width = this.width;
-        this.mouseCanvas.canvas.height = this.height;
+        this.skyboxRt.setSize(this.width, this.height);
+        this.cubesRt.setSize(this.width, this.height);
 
         // composer
         this.composer.setSize(this.width, this.height);
@@ -81,22 +149,22 @@ export default class WebGLView {
 
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-    const bloomPass = new BloomPass(
-      1, // strength
-      25, // kernel size
-      4, // sigma ?
-      256 // blur render target resolution
-    );
-    this.composer.addPass(bloomPass);
+    // const bloomPass = new BloomPass(
+    //   1, // strength
+    //   25, // kernel size
+    //   4, // sigma ?
+    //   256 // blur render target resolution
+    // );
+    // this.composer.addPass(bloomPass);
 
-    const filmPass = new FilmPass(
-      0.35, // noise intensity
-      0.025, // scanline intensity
-      648, // scanline count
-      false // grayscale
-    );
-    filmPass.renderToScreen = true;
-    this.composer.addPass(filmPass);
+    // const filmPass = new FilmPass(
+    //   0.35, // noise intensity
+    //   0.025, // scanline intensity
+    //   648, // scanline count
+    //   false // grayscale
+    // );
+    // filmPass.renderToScreen = true;
+    // this.composer.addPass(filmPass);
   }
 
   initTweakPane() {
@@ -184,7 +252,9 @@ export default class WebGLView {
       this.renderer,
       this.bgRenderTarget,
       this.mouseCanvas,
-      this.textCanvas
+      this.textCanvas,
+      this.skyboxRt,
+      this.cubesRt
     );
   }
 
@@ -197,11 +267,11 @@ export default class WebGLView {
       50,
       window.innerWidth / window.innerHeight,
       0.01,
-      100
+      1000
     );
     this.controls = new OrbitControls(this.bgCamera, this.renderer.domElement);
 
-    this.bgCamera.position.z = 3;
+    this.bgCamera.position.z = 0.1;
     this.controls.update();
 
     this.bgScene = new THREE.Scene();
@@ -247,6 +317,14 @@ export default class WebGLView {
 
     this.controls.update();
 
+    for (let i = 0; i < this.cubes.length; i++) {
+      if (i % 2 === 0) {
+        this.cubes[i].rotation.y += 0.001;
+      } else {
+        this.cubes[i].rotation.y -= 0.001;
+      }
+    }
+
     if (this.renderTri) {
       this.renderTri.triMaterial.uniforms.uTime.value = time;
     }
@@ -267,8 +345,20 @@ export default class WebGLView {
   }
 
   draw() {
-    this.renderer.setRenderTarget(this.bgRenderTarget);
-    this.renderer.render(this.bgScene, this.bgCamera);
+    // this.renderer.setRenderTarget(this.bgRenderTarget);
+    // this.renderer.render(this.bgScene, this.bgCamera);
+    // this.renderer.setRenderTarget(null);
+
+    // console.log(this.cubesScene);
+
+    // render cubes to rt
+    this.renderer.setRenderTarget(this.cubesRt);
+    this.renderer.render(this.cubesScene, this.bgCamera);
+    this.renderer.setRenderTarget(null);
+
+    // render skybox to rt
+    this.renderer.setRenderTarget(this.skyboxRt);
+    this.renderer.render(this.skyboxScene, this.bgCamera);
     this.renderer.setRenderTarget(null);
 
     this.renderer.render(this.scene, this.camera);
